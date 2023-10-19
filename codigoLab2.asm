@@ -4,22 +4,48 @@ input: .asciiz "digram_test.java"
 output: .asciiz "output.txt"
 dict:	.asciiz "dictionary.txt"
 codedProgram:	.asciiz "output.txt"
-str_buffer:	.space 1024	# Necesita un buffer para poder procesar el texto
+.align 2
+input_buffer:	.space 1024	# Necesita un buffer para poder procesar el texto
+.align 2
+dict_buffer:	.space 1024	# To save dictionary.txt data
 output_buffer:	.space 1024
 
 
 .text
-	j openToRead
+	la $s0, input
+	la $s1, input_buffer
+	jal openToRead	# Read input(digram_test.java)
+	move $a3, $a0
+	# openToRead loads file data onto the Memory
+	
+	
+	# FIX: Los buffer se sobreescriben entre ellos en la memoria de programa
 
+	 la $s0, dict
+	 la $s1, dict_buffer
+	 jal openToRead	# Read dictionary
 
-caracter:
-	li $v0, 12
-	syscall
+	 jal closeFile	# Close dictionary
+	 move $a0, $a3	# Close input
+	 jal closeFile
+	
+	la $t3, input_buffer	# Address of buffer
 
-readCaracter:	# Loop que procesa el texto de a par de caracteres
-	lw $t0, caracter	# Caracter del texto
-	lw $t1, 4($t0)	#Caracter de la derecha
-	# Con estos dos se concatenan para formar un bigrama, si no se encuentra el bigrama en el diccionario
+	# Idea, usamos un registro para tener en cuenta el offset del registro $t4 a medida que vamos procesando el buffer.
+	# Este registro sería a modo de contador
+
+	jal processCaracter	# Una vez cargado input y dict en la memoria. Se procede a procesar usando ambos buffers.
+
+processCaracter:
+
+	# Loop que procesa el texto de a par de caracteres
+	
+	lb $t4, ($t3)	# Caracter izq. de digrama
+	lb $t5, 1($t3)	#Caracter de la derecha del inicial
+	
+	
+	
+	# Con estos dos se concatenan para formar un digrama, si no se encuentra el digrama en el diccionario
 	# se codifica solo el caracter de la izquierda y se avanza a la siguiente dirección.
 	
 	# Branch en el caso de que encuentra el bigrama
@@ -28,20 +54,28 @@ readCaracter:	# Loop que procesa el texto de a par de caracteres
 	
 	# Branch para cuando se terminó de leer el documento.
 
+searchDict:
+	# LOOP PARA BUSCAR EL DIGRAMA EN EL DICCIONARIO.
+
+
 
 # La dirección del archivo se debería cargar como un parametro. Para tener la flexibilidad de leer el archivo java y otras cosas.
 openToRead:	# Abre archivo para leerlo. Se deberían ejecutar una vez en toda la ejecución del programa
 	li $v0, 13	# Abrir archivo
-	la $a0, dict	# TODO: Reemplazar por registro con la dirección del archivo a usar
+	move $a0, $s0	# TODO: Reemplazar por registro con la dirección del archivo a usar
 	li $a1, 0	# Read-only mode.
 	li $a2, 0
 	syscall	# Returns file descriptor
-	move $t0, $v0
 	
-	li $v0, 1	# Show on screen file descriptor
-	move $a0, $t0
+	move $a0, $v0	# Mueve a $a0 el descriptor de archivo retornado al abrir archivo
+	li $v0, 14	# Lee el archivo abierto.
+	move $a1, $s1	# Direccion con el buffer respectivo
+	la $a2, 1024
 	syscall
-	j readFile
+	
+    	jr $ra
+    	
+    	# Aquí también debería intentar obtener los datos necesarios para poder ir a procesar los caracteres
 
 openToWrite:
 	li $v0, 13
@@ -51,19 +85,12 @@ openToWrite:
 	li $a2, 0
 	syscall
 	
-readFile:	# Abre archivo para escribir. Se deberían ejecutar una vez en toda la ejecución del programa
-	move $a0, $t0	# Intenta leer el archivo abierto previamente
-	li $v0, 14
-	la $a1, str_buffer
-	la $a2, 1024
+closeFile:
+	# a0 is already setted with file descriptor.
+	li $v0, 16
 	syscall
-	move $s0, $v0
+	jr $ra
 	
-	li $v0, 1	# Print number of read characters.
-	move $a0, $s0        
-    	syscall
-    	
-    	# Aquí también debería intentar obtener los datos necesarios para poder ir a procesar los caracteres
 
 writeFile:
 	move $a0, $t0	# File descriptor
