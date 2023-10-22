@@ -8,12 +8,12 @@ input_buffer:	.space 500	# Necesita un buffer para poder procesar el texto
 .align 2
 dict_buffer:	.space 420	# To save dictionary.txt data
 .align 2
-output_buffer:	.space 20
+output_buffer:	.space 2
 # El output_buffer está enfocado para guardar de a caracter o de a digrama, y se va escribiendo al archivo instantáneamente.
 # Por tanto hay que abrir y escribir constantemente.
 
 .text
-
+	
 	# Abrir y leer archivo de input
 	la $s0, input
 	la $s1, input_buffer
@@ -28,6 +28,8 @@ output_buffer:	.space 20
 	la $t3, input_buffer	# Direccion inicial del buffer
 	jal processCaracter	# Una vez cargado input, procesa en memoria todos los caracteres de entrada.
 	
+	li $v0, 10	# Termina el programa
+	syscall
 
 processCaracter:
 	
@@ -36,22 +38,21 @@ processCaracter:
 	
 	lb $a0, ($t3)	# Caracter izq. de digrama
 	lb $a1, 1($t3)	#Caracter de la derecha del inicial
-	
+	beq $a0, 0x00, end_input_file	# Fin de archivo.	Debería procesar el último caracter y salirse de la rutina processCaracter
 	jal searchDict	# Busco en el diccionario el digrama correspondiente.
 	
 	# Escribo en el output el digrama o caracter codificado.
+	add $t3, $t3, $v0	# Avanza el equivalente encontrado en el diccionario.
 	jal codeIntoOutput
 	
-	beq $t5, 0x00, end_file	# Fin de archivo.	Debería procesar el último caracter y salirse de la rutina processCaracter
-	
-
-	addi $t3, $t3, 1	# Avanza de a uno en la memoria del buffer.
+	# addi $t3, $t3, 1	# Avanza de a uno en la memoria del buffer.
 	
 	j processCaracter	# Repite el bucle.
 	
 
-end_file:
-	
+end_input_file:	# Fin de programa
+	li $v0, 10
+	syscall
 
 searchDict:
 # Busca el digrama y lo cierra.
@@ -60,8 +61,12 @@ searchDict:
 	# Busca en el diccionario el digrama o el caracter
 	la $t0, dict_buffer	# Dirección inicial del buffer
 	la $t5, output_buffer	# Guarda la dirección del buffer de escritura
-	jal searchDigram	# Primero buscamos un digrama
+	la $t8, 95($t0)	# Valor de memoria para iniciar la busqueda en el dict.
+	li $t9, 125	# Valor inicial del indice
+	# jal searchDigram	# Primero buscamos un digrama
 	# $v0 sólo será 2 en el caso de que se haya encontrado un digrama.
+	la $t8, ($t0)	# Valor de memoria para iniciar la busqueda en el dict.
+	li $t9, 32	# Valor inicial del indice
 	bne $v0, 2, searchCharacter	# Si no encuentra digrama busca un caracter en el diccionario.
 	
 	
@@ -69,53 +74,61 @@ searchDict:
 
 
 searchDigram:	#Loop
-
 # Entradas: $a0 y $a1 conforman un digrama de la entrada.
 
 # Returns: 2 si encontré un digrama
 # 	   1 si no encontré digrama
 # (también se usa para saber de a cuanto avanzar en el input_buffer)
 	# Cargo digramas del diccionario en registros.
-
-	lb $t1, ($t0)	# Carga dos caracteres contiguos del diccionario.
-	lb $t2, 1($t0)
-
-	beq $t2, 0x00, end_file	# Cuando llego al final, realizo una última busqueda para caracter y continuo el programa.
-
+	move $s6, $ra	# Direccion de retorno
+	lb $t1, ($t8)	# Carga dos caracteres contiguos del diccionario.
+	lb $t2, 1($t8)
+	beq $t2, 0x00, finalizarBusqueda	# Cuando llego al final, realizo una última busqueda para caracter y continuo el programa.
 	beq $a0, $t1, comparaSegundoCaracter	# Si hay coincidencias entre los primeros caracteres, se verifica si coinciden los otros.
-
-	
-	addi $t0, $t0, 1	# Avanzo en el buffer de lectura del diccionario.
+	beq $v0, 2, finalizarBusqueda
+	addi $t9, $t9, 1	# Suma de a uno al índice
+	addi $t8, $t8, 2	# jAvanzo en el buffer de lectura del diccionario.
 	
 	j searchDigram
 
+finalizarBusqueda:
+	jr $s6
+	# Sale de la busqueda de digramas
+
 comparaSegundoCaracter:
-# TODO: Si encuentro un digrama, paro la busqueda y escribo en output.
+# Si encuentro un digrama, paro la busqueda y escribo en output.
+	move $t7, $ra	# Direccion de retorno
 	li $v0, 1
 	beq $a1, $t2, encuentraDigrama	# Si coincide también el segundo caracter del digrama
-	jr $ra
+	jr $t7
 	
 encuentraDigrama:
 # Returns: $v0: 2 significa que encontró un digrama.
-# 	   TODO: $v1: código a usar para la codificacion. (En este caso es el index a codificar)
-
-	# TODO: Guardo en el buffer el indice que representa el digrama
-	
+# 	   $v1: código a usar para la codificacion. (En este caso es el index a codificar)
+	move $v1, $t9
+	sb $v1, output_buffer	# Escribe $t8(indice) en el buffer de salida.
 	li $v0, 2	# Esto indica que se encontró un digrama, también se podría usar para decidir cuanto avanzar en el diccionario.
- 
+ 	jr $ra
  
  
 searchCharacter:	# LOOP
 
-	# TODO: Función utilizada para evaluar caracteres individuales. 
+	move $s6, $ra
+	lb $t1, ($t8)	# Carga un caracter del diccionario.
+	li $v0, 1
+	beq $a0, $t1, encuentraCaracter
+	beq $t1, 0x00, finalizarBusqueda
 	
-	
-	# Falta todo xd.
-	
+	addi $t8, $t8, 1	# Direccion en el buffer del diccionario
+	addi $t9, $t9, 1	# Indice
 	j searchCharacter
 	#addi $ra, $ra, 4	# para ir a la siguiente instruccion
 	#jr $ra
 
+encuentraCaracter:
+	move $v1, $t9
+	sb $v1, output_buffer
+	jr $s6
 
 openToRead:	# Abre archivo para leerlo.
 	li $v0, 13	# Abrir archivo
